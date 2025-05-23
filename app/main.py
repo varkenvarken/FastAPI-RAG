@@ -7,7 +7,7 @@ sys.modules['sqlite3'] = sys.modules.pop('pysqlite3')
 # when using Python 3.11 and above.
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
-from chromadb import HttpClient
+from chromadb import HttpClient, Collection
 from chromadb.utils import embedding_functions
 from typing import List, Dict
 import httpx
@@ -42,7 +42,6 @@ app = FastAPI(lifespan=startup_event)
 # ChromaDB Settings
 CHROMA_HOST = "chromadb"
 CHROMA_PORT = 8000
-COLLECTION_NAME = "my_documents"
 
 # Ollama Settings
 OLLAMA_HOST = "ollama"
@@ -59,22 +58,55 @@ ollama_ef = embedding_functions.OllamaEmbeddingFunction(
     model_name=EMBEDDING_MODEL,
 )
 
-# Get or create the collection
-collection = chroma_client.get_or_create_collection(
-    name=COLLECTION_NAME, embedding_function=ollama_ef
-)
-
 class DocumentInput(BaseModel):
     id: str
     content: str
+    collection: str
 
 class QueryInput(BaseModel):
     query: str
+    collection: str
 
 class QueryResponse(BaseModel):
     answer: str
     relevant_ids: List[str]
+    collection: str
 
+def get_chroma_collections_info(chroma_client: HttpClient) -> list[dict]:
+    """
+    Retrieves a list of collections from ChromaDB with their names and document counts.
+
+    Args:
+        chroma_client: An initialized ChromaDB HttpClient instance.
+
+    Returns:
+        A list of dictionaries, where each dictionary contains 'name' (str)
+        and 'document_count' (int) for a collection.
+        Returns an empty list if no collections are found or an error occurs.
+    """
+    collections_info = []
+    try:
+        # List all collections available in the ChromaDB instance
+        collections: list[Collection] = chroma_client.list_collections()
+
+        if not collections:
+            print("No collections found in ChromaDB.")
+            return []
+
+        # Iterate through each collection to get its name and document count
+        for collection in collections:
+            collection_name = collection.name
+            document_count = collection.count() # Get the number of documents in the collection
+            collections_info.append({
+                "name": collection_name,
+                "document_count": document_count
+            })
+    except Exception as e:
+        print(f"An error occurred while fetching ChromaDB collection info: {e}")
+        # Depending on desired error handling, you might re-raise the exception
+        # or return a specific error indicator. For now, we'll return an empty list.
+        return []
+    return collections_info
 
 
 async def get_ollama_response(prompt: str, model: str):
@@ -97,17 +129,19 @@ async def get_ollama_response(prompt: str, model: str):
 @app.post("/document")
 async def process_document(doc_input: DocumentInput):
     try:
+        collection = chroma_client.get_or_create_collection(name=doc_input.collection, embedding_function=ollama_ef)
         collection.add(
             ids=[doc_input.id],
             documents=[doc_input.content],
         )
-        return {"message": f"Document with id '{doc_input.id}' processed and stored."}
+        return {"message": f"Document with id '{doc_input.id}' processed and stored in {doc_input.collection}."}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/query", response_model=QueryResponse)
 async def query_documents(query_input: QueryInput):
     try:
+        collection = chroma_client.get_or_create_collection(name=query_input.collection, embedding_function=ollama_ef)
         results = collection.query(
             query_texts=[query_input.query],
             n_results=3  # You can adjust the number of results
@@ -117,12 +151,20 @@ async def query_documents(query_input: QueryInput):
             prompt = f"Based on the following context: '{context}', answer the query: '{query_input.query}'"
             answer = await get_ollama_response(prompt, LLM_MODEL)
             print(f"Answer from LLM: {answer}")
-            return QueryResponse(answer=answer, relevant_ids=results['ids'][0])
+            return QueryResponse(answer=answer, relevant_ids=results['ids'][0], collection=query_input.collection)
         else:
-            return QueryResponse(answer="No relevant documents found.", relevant_ids=[])
+            return QueryResponse(answer="No relevant documents found.", relevant_ids=[], collection=query_input.collection)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+@app.get("/status")
+async def get_status():
+    try:
+        collections_info = get_chroma_collections_info(chroma_client)
+        return {"status": "OK", "collections": collections_info}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    
 async def pull_models():
     client = Client(host='http://localhost:11434')  # Assuming Ollama is running locally
 
