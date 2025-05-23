@@ -1,0 +1,7 @@
+create a FastAPI application that runs iin a docker container with the following endpoints:
+
+/document  POST  processes a JSON body containing the content of a document and an id; it will store the document and the in in a ChromaDB that is running in a separate container
+
+/query POST   processes a JSON body containing a query and returns and answer and a list of relevant document ids
+
+The application should use ollama for embeddings using the nomic embedding and llama-3.2 for the llm , and ollama schould run in a seperate container.

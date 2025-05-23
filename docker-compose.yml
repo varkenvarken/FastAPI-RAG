@@ -1,0 +1,30 @@
+version: '3.8'
+services:
+  app:
+    build: ./app
+    ports:
+      - "8000:8000"
+    depends_on:
+      - chromadb
+      - ollama
+    environment:
+      CHROMA_HOST: chromadb
+      CHROMA_PORT: 8000
+      OLLAMA_HOST: ollama
+      OLLAMA_PORT: 11434
+  chromadb:
+    image: chromadb/chroma:latest
+    # ports:
+    #   - "8001:8000" # Expose if you want to interact directly with ChromaDB
+    volumes:
+      - chromadb_data:/chroma_db
+  ollama:
+    image: ollama/ollama:latest
+    # ports:
+    #   - "11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+
+volumes:
+  chromadb_data:
+  ollama_data:

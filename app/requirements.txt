@@ -1,0 +1,7 @@
+fastapi
+uvicorn
+pydantic
+httpx
+ollama
+chromadb==1.0.7
+pysqlite3-binary==0.5.4
